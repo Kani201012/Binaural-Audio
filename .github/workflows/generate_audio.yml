@@ -1,0 +1,42 @@
+name: Generate Binaural Audio
+
+on:
+  # This allows you to run the script manually from the "Actions" tab
+  workflow_dispatch:
+  # This runs the script automatically every time you push code
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build_audio:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ffmpeg
+
+    - name: Install Python libraries
+      run: |
+        pip install -r requirements.txt
+
+    - name: Run Audio Generator
+      run: python main.py
+
+    - name: Upload Audio Result
+      uses: actions/upload-artifact@v4
+      with:
+        name: Janka-ADHD-Audio
+        path: |
+          *.wav
+          *.mp3
+        retention-days: 5
