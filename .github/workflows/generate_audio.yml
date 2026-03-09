@@ -1,11 +1,16 @@
-name: Generate Binaural Audio
+name: Generate Audio (Full or Sample)
 
 on:
-  # This allows you to run the script manually from the "Actions" tab
   workflow_dispatch:
-  # This runs the script automatically every time you push code
-  push:
-    branches: [ "main" ]
+    inputs:
+      version:
+        description: 'Choose which version to generate'
+        required: true
+        default: 'sample'
+        type: choice
+        options:
+        - sample
+        - full
 
 jobs:
   build_audio:
@@ -26,16 +31,20 @@ jobs:
         sudo apt-get install -y ffmpeg
 
     - name: Install Python libraries
-      run: |
-        pip install -r requirements.txt
+      run: pip install -r requirements.txt
 
-    - name: Run Audio Generator
+    - name: Run Sample Generator
+      if: ${{ github.event.inputs.version == 'sample' }}
+      run: python sample.py
+
+    - name: Run Full Generator
+      if: ${{ github.event.inputs.version == 'full' }}
       run: python main.py
 
     - name: Upload Audio Result
       uses: actions/upload-artifact@v4
       with:
-        name: Janka-ADHD-Audio
+        name: ${{ github.event.inputs.version }}-audio-files
         path: |
           *.wav
           *.mp3
