@@ -1,78 +1,71 @@
 import numpy as np
 from scipy.io import wavfile
 from pydub import AudioSegment
+from pydub.generators import WhiteNoise
 import os
 
 SAMPLE_RATE = 44100
-CARRIER = 200 
-DUR = 180 
+DUR = 180  # 3 minutes
 
-def gen_smooth_binaural(duration):
-    # Smooth transition from 10Hz to 14Hz
-    t = np.linspace(0, duration, int(SAMPLE_RATE * duration), False)
-    freqs = np.linspace(10, 14, len(t))
-    phase = 2 * np.pi * np.cumsum(freqs) / SAMPLE_RATE
-    l = np.sin(2 * np.pi * CARRIER * t - phase/2)
-    r = np.sin(2 * np.pi * CARRIER * t + phase/2)
-    return (np.vstack((l, r)).T * 32767).astype(np.int16)
+print("1. Generating Clean Scientific Binaural Beats...")
+# Transition from 10Hz to 14Hz over 3 minutes
+t = np.linspace(0, DUR, int(SAMPLE_RATE * DUR), False)
+freqs = np.linspace(10, 14, len(t))
+phase = 2 * np.pi * np.cumsum(freqs) / SAMPLE_RATE
 
-def gen_true_brown_noise(duration, volume_multiplier=1.0):
-    # True brown noise is a random walk (much softer than white noise)
-    samples = int(SAMPLE_RATE * duration)
-    white = np.random.normal(0, 1, samples)
-    brown = np.cumsum(white) # This creates the deep, soft roar
-    # Normalize to prevent distortion
-    brown = brown / np.max(np.abs(brown))
-    return (np.vstack((brown, brown)).T * (20000 * volume_multiplier)).astype(np.int16)
+# 200Hz Carrier Frequency
+left = np.sin(2 * np.pi * 200 * t - phase/2)
+right = np.sin(2 * np.pi * 200 * t + phase/2)
+binaural = np.vstack((left, right)).T
 
-def gen_lush_pad(duration):
-    # A warm, detuned ambient drone (Requires no melody)
-    t = np.linspace(0, duration, int(SAMPLE_RATE * duration), False)
-    
-    # Base frequencies (Deep C and G)
-    f1, f2, f3 = 130.81, 196.00, 65.41
-    
-    # Adding slight detuning (e.g., 130.81 and 131.5) creates a beautiful "chorus" or "breathing" effect
-    layer1 = np.sin(2 * np.pi * f1 * t) + np.sin(2 * np.pi * (f1 + 0.5) * t)
-    layer2 = np.sin(2 * np.pi * f2 * t) + np.sin(2 * np.pi * (f2 - 0.3) * t)
-    layer3 = np.sin(2 * np.pi * f3 * t) # Deep bass foundation
-    
-    pad = (layer1 * 0.4) + (layer2 * 0.3) + (layer3 * 0.5)
-    pad = pad / np.max(np.abs(pad))
-    return (np.vstack((pad, pad)).T * 18000).astype(np.int16)
+# CRITICAL FIX: Lower volume to 10% so it doesn't vibrate the whole track!
+wavfile.write("binaural_clean.wav", SAMPLE_RATE, (binaural * 3276).astype(np.int16))
 
-print("1. Synthesizing Organic Sounds...")
-wavfile.write("t_bin.wav", SAMPLE_RATE, gen_smooth_binaural(DUR))
-wavfile.write("t_brown.wav", SAMPLE_RATE, gen_true_brown_noise(DUR))
-wavfile.write("t_pad.wav", SAMPLE_RATE, gen_lush_pad(DUR))
+print("2. Synthesizing Beautiful Space Pad...")
+# C-Suspended Chord (C3, G3, C4, D4) - No melody, just a lush, calming atmosphere
+c3 = np.sin(2 * np.pi * 130.81 * t)
+g3 = np.sin(2 * np.pi * 196.00 * t)
+c4 = np.sin(2 * np.pi * 261.63 * t)
+d4 = np.sin(2 * np.pi * 293.66 * t)
 
-print("2. Studio Mixing (Applying ultra-soft ADHD filters)...")
-# Load into Pydub for precise EQ and Volume control
+pad = (c3 + g3 + c4 + d4) / 4.0
+# Add a slow "breathing" swell every 20 seconds
+swell = (np.sin(2 * np.pi * 0.05 * t) + 1) / 2 
+pad = pad * (0.6 + 0.4 * swell) # Mix base volume with swell
+pad = np.vstack((pad, pad)).T
+wavfile.write("pad_clean.wav", SAMPLE_RATE, (pad * 6000).astype(np.int16))
 
-# 1. Binaural Tone: Very subtle, just enough for the brain to catch it
-bin_layer = AudioSegment.from_wav("t_bin.wav") - 22
+print("3. Generating Organic Rain & Ocean using Studio Filters...")
+bin_audio = AudioSegment.from_wav("binaural_clean.wav")
+pad_audio = AudioSegment.from_wav("pad_clean.wav")
 
-# 2. The Atmospheric Pad: This is the main melodic focus, kept warm and low
-pad_layer = AudioSegment.from_wav("t_pad.wav").low_pass_filter(800) - 8
+# Use Pydub's safe generator to avoid math clipping!
+raw_noise = WhiteNoise().to_audio_segment(duration=DUR * 1000)
 
-# 3. Soft Rainfall / Ocean: Using Brown noise, cutting the harsh highs, making it VERY quiet
-rain_layer = AudioSegment.from_wav("t_brown.wav").low_pass_filter(1500).high_pass_filter(200) - 24
+# Create Rain: Cut the harsh highs and muddy lows
+rain = raw_noise.low_pass_filter(1500).high_pass_filter(400) - 20
 
-# 4. Deep Focus Brown Noise: Barely audible rumble for depth
-depth_layer = AudioSegment.from_wav("t_brown.wav").low_pass_filter(150) - 26
+# Create Deep Ocean Rumble (The Brown Noise requested)
+ocean_rumble = raw_noise.low_pass_filter(300) - 12
 
-# Mix the base layers
-mix = pad_layer.overlay(rain_layer).overlay(depth_layer).overlay(bin_layer)
+print("4. Mixing the Final Track...")
+# Stack the layers smoothly
+mix = pad_audio.overlay(rain).overlay(ocean_rumble).overlay(bin_audio)
 
-print("3. Adding Subtle Sky/Wind...")
-# 5. Wind Texture: High-passed brown noise, very faint
-wind_layer = AudioSegment.from_wav("t_brown.wav").high_pass_filter(1200) - 28
-wind_layer = wind_layer.fade_in(5000)
-mix = mix.overlay(wind_layer, position=120000) # Starts at 2:00 mark
+print("5. Adding the Skydiving Wind (Final 60 seconds)...")
+# Create Wind: Focus on the "whoosh" frequencies
+wind = raw_noise.high_pass_filter(800).low_pass_filter(2500) - 15
 
-print("4. Finalizing Master...")
-mix.fade_out(4000).export("Janka_UltraSoft_Sample.mp3", format="mp3", bitrate="320k")
+# Extract only the last 60 seconds and fade it in
+wind_ending = wind[-60000:].fade_in(5000)
 
-# Cleanup
-for f in ["t_bin.wav", "t_brown.wav", "t_pad.wav"]: os.remove(f)
-print("Ultra-Soft Sample complete!")
+# Overlay the wind at exactly the 2-minute mark (120,000 milliseconds)
+mix = mix.overlay(wind_ending, position=120000)
+
+print("6. Exporting High-Quality MP3...")
+mix.fade_out(5000).export("Janka_Perfect_Sample.mp3", format="mp3", bitrate="320k")
+
+# Cleanup files
+for f in ["binaural_clean.wav", "pad_clean.wav"]: os.remove(f)
+
+print("SUCCESS! File saved as Janka_Perfect_Sample.mp3")
