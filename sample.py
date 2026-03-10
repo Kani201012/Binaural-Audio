@@ -4,78 +4,75 @@ from pydub import AudioSegment
 import os
 
 SAMPLE_RATE = 44100
-CARRIER = 200 # Standard binaural carrier
-DUR = 180 # 3 minutes
+CARRIER = 200 
+DUR = 180 
 
-def gen_binaural(duration, start_f, end_f):
+def gen_smooth_binaural(duration):
+    # Smooth transition from 10Hz to 14Hz
     t = np.linspace(0, duration, int(SAMPLE_RATE * duration), False)
-    freqs = np.linspace(start_f, end_f, len(t))
+    freqs = np.linspace(10, 14, len(t))
     phase = 2 * np.pi * np.cumsum(freqs) / SAMPLE_RATE
     l = np.sin(2 * np.pi * CARRIER * t - phase/2)
     r = np.sin(2 * np.pi * CARRIER * t + phase/2)
-    return (np.vstack((l, r)).T * 6000).astype(np.int16) 
+    return (np.vstack((l, r)).T * 32767).astype(np.int16)
 
-def gen_white_noise(duration):
-    # Crisp noise that we will filter into rain and wind
+def gen_true_brown_noise(duration, volume_multiplier=1.0):
+    # True brown noise is a random walk (much softer than white noise)
     samples = int(SAMPLE_RATE * duration)
-    n = np.random.normal(0, 0.4, samples)
-    return (np.vstack((n, n)).T * 32767).astype(np.int16)
+    white = np.random.normal(0, 1, samples)
+    brown = np.cumsum(white) # This creates the deep, soft roar
+    # Normalize to prevent distortion
+    brown = brown / np.max(np.abs(brown))
+    return (np.vstack((brown, brown)).T * (20000 * volume_multiplier)).astype(np.int16)
 
-def gen_ocean_swells(duration):
-    # Noise with realistic crashing wave patterns
-    samples = int(SAMPLE_RATE * duration)
-    t = np.linspace(0, duration, samples, False)
-    n = np.random.normal(0, 0.4, samples)
-    swell = (np.sin(2 * np.pi * 0.1 * t) + 1) / 2  # 10-second waves
-    swell = swell ** 2 # Makes the peaks sharper like crashing waves
-    return (np.vstack((n * swell, n * swell)).T * 32767).astype(np.int16)
-
-def gen_space_pad(duration):
-    # A beautiful, airy atmospheric chord (No melody, just a rich pad)
+def gen_lush_pad(duration):
+    # A warm, detuned ambient drone (Requires no melody)
     t = np.linspace(0, duration, int(SAMPLE_RATE * duration), False)
-    c3 = np.sin(2 * np.pi * 130.81 * t)
-    g3 = np.sin(2 * np.pi * 196.00 * t)
-    c4 = np.sin(2 * np.pi * 261.63 * t)
-    d4 = np.sin(2 * np.pi * 293.66 * t)
     
-    # Mix chord and add slow "breathing" effect
-    tone = (c3 + g3*0.8 + c4*0.6 + d4*0.5) / 4.0
-    breath = (np.sin(2 * np.pi * 0.05 * t) + 1) / 2
-    tone = tone * (0.6 + 0.4 * breath)
-    return (np.vstack((tone, tone)).T * 12000).astype(np.int16)
+    # Base frequencies (Deep C and G)
+    f1, f2, f3 = 130.81, 196.00, 65.41
+    
+    # Adding slight detuning (e.g., 130.81 and 131.5) creates a beautiful "chorus" or "breathing" effect
+    layer1 = np.sin(2 * np.pi * f1 * t) + np.sin(2 * np.pi * (f1 + 0.5) * t)
+    layer2 = np.sin(2 * np.pi * f2 * t) + np.sin(2 * np.pi * (f2 - 0.3) * t)
+    layer3 = np.sin(2 * np.pi * f3 * t) # Deep bass foundation
+    
+    pad = (layer1 * 0.4) + (layer2 * 0.3) + (layer3 * 0.5)
+    pad = pad / np.max(np.abs(pad))
+    return (np.vstack((pad, pad)).T * 18000).astype(np.int16)
 
-print("Generating high-fidelity audio elements...")
-wavfile.write("raw_bin.wav", SAMPLE_RATE, gen_binaural(DUR, 10, 14))
-wavfile.write("raw_noise.wav", SAMPLE_RATE, gen_white_noise(DUR))
-wavfile.write("raw_ocean.wav", SAMPLE_RATE, gen_ocean_swells(DUR))
-wavfile.write("raw_pad.wav", SAMPLE_RATE, gen_space_pad(DUR))
+print("1. Synthesizing Organic Sounds...")
+wavfile.write("t_bin.wav", SAMPLE_RATE, gen_smooth_binaural(DUR))
+wavfile.write("t_brown.wav", SAMPLE_RATE, gen_true_brown_noise(DUR))
+wavfile.write("t_pad.wav", SAMPLE_RATE, gen_lush_pad(DUR))
 
-print("Applying EQ Filters and Mixing...")
-bin_a = AudioSegment.from_wav("raw_bin.wav") - 18  # Push vibration to the back
+print("2. Studio Mixing (Applying ultra-soft ADHD filters)...")
+# Load into Pydub for precise EQ and Volume control
 
-# RAIN: Cut extreme highs and lows for a soft rainfall sound
-rain_a = AudioSegment.from_wav("raw_noise.wav").high_pass_filter(500).low_pass_filter(3000) - 10
+# 1. Binaural Tone: Very subtle, just enough for the brain to catch it
+bin_layer = AudioSegment.from_wav("t_bin.wav") - 22
 
-# OCEAN: Cut the highs so it sounds deep and distant
-ocean_a = AudioSegment.from_wav("raw_ocean.wav").low_pass_filter(800) - 8
+# 2. The Atmospheric Pad: This is the main melodic focus, kept warm and low
+pad_layer = AudioSegment.from_wav("t_pad.wav").low_pass_filter(800) - 8
 
-# SPACE PAD: Beautiful atmospheric tone
-pad_a = AudioSegment.from_wav("raw_pad.wav") - 12
+# 3. Soft Rainfall / Ocean: Using Brown noise, cutting the harsh highs, making it VERY quiet
+rain_layer = AudioSegment.from_wav("t_brown.wav").low_pass_filter(1500).high_pass_filter(200) - 24
 
-# DEEP FOCUS BROWN NOISE: Heavily filtered background rumble
-depth_a = AudioSegment.from_wav("raw_noise.wav").low_pass_filter(250) - 8
+# 4. Deep Focus Brown Noise: Barely audible rumble for depth
+depth_layer = AudioSegment.from_wav("t_brown.wav").low_pass_filter(150) - 26
 
-# MIX EVERYTHING
-mix = rain_a.overlay(ocean_a).overlay(pad_a).overlay(depth_a).overlay(bin_a)
+# Mix the base layers
+mix = pad_layer.overlay(rain_layer).overlay(depth_layer).overlay(bin_layer)
 
-print("Adding Skydiving Wind...")
-# WIND: Mid-range noise that fades in smoothly
-wind = AudioSegment.from_wav("raw_noise.wav").high_pass_filter(1000).low_pass_filter(2500) - 10
-wind = wind.fade_in(5000)
-mix = mix.overlay(wind, position=120000) # Start at 2-minute mark
+print("3. Adding Subtle Sky/Wind...")
+# 5. Wind Texture: High-passed brown noise, very faint
+wind_layer = AudioSegment.from_wav("t_brown.wav").high_pass_filter(1200) - 28
+wind_layer = wind_layer.fade_in(5000)
+mix = mix.overlay(wind_layer, position=120000) # Starts at 2:00 mark
 
-mix.fade_out(4000).export("Janka_Fixed_Sample.mp3", format="mp3", bitrate="320k")
+print("4. Finalizing Master...")
+mix.fade_out(4000).export("Janka_UltraSoft_Sample.mp3", format="mp3", bitrate="320k")
 
 # Cleanup
-for f in ["raw_bin.wav", "raw_noise.wav", "raw_ocean.wav", "raw_pad.wav"]: os.remove(f)
-print("Perfect Sample Created!")
+for f in ["t_bin.wav", "t_brown.wav", "t_pad.wav"]: os.remove(f)
+print("Ultra-Soft Sample complete!")
